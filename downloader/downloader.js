@@ -122,6 +122,10 @@ class Downloader {
     const target = this.isUrl(input) ? input : `ytsearch${this.env.ytdlp.searchResults}:${input}`;
     const args = ['--dump-single-json', '--no-playlist', '--skip-download'];
 
+    if (!this.isUrl(input)) {
+      args.push('--flat-playlist');
+    }
+
     if (this.env.ytdlp.cookiesFile) {
       args.push('--cookies', this.env.ytdlp.cookiesFile);
     }
@@ -238,7 +242,8 @@ class Downloader {
   }
 
   injectRuntimeArgs(args) {
-    const runtime = String(this.env.ytdlp.jsRuntime || '').trim();
+    const configuredRuntime = String(this.env.ytdlp.jsRuntime || '').trim();
+    const runtime = configuredRuntime || (process.platform === 'linux' ? 'node' : '');
     if (!runtime || process.platform !== 'linux') {
       return;
     }
