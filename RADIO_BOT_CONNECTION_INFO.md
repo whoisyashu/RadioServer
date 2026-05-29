@@ -35,6 +35,12 @@ Store these values in the bot configuration or environment file:
 - `RADIO_MOUNT` - example: `/stream` or `/highrise`
 - `RADIO_LISTENER_URL` - example: `http://localhost:8000/stream`
 
+Optional values:
+
+- `RADIO_API_URL_FALLBACKS` - comma-separated extra API URLs to try if the primary one is not reachable
+- `HIGHRISE_ROOM_ID` - the room the bot should join
+- `HIGHRISE_BOT_TOKEN` - the bot login token
+
 If the radio server is exposed publicly, use the public listener URL instead of localhost.
 
 Example:
@@ -105,6 +111,12 @@ Example response fields:
 - `queueLength` - number of queued items
 - `radio` - current internal radio state
 
+### Stream URL
+
+`GET /health`
+
+Use this to read the current listener URL that the bot can show to users.
+
 ### Skip
 
 `POST /skip`
@@ -144,6 +156,19 @@ Typical bot-friendly response fields:
 - `position`
 - `radio`
 - `nowPlaying`
+
+## Bot command examples
+
+If you keep the included `musicBot/index.js`, these are the current commands:
+
+- `-play <query or url>` - queue a song
+- `-skip` - skip the current song
+- `-queue` - list upcoming songs
+- `-np` - show the current song
+- `-next` - show the prepared next track
+- `-stream` - post the listener URL
+- `-promote` - queue the promo track next
+- `-help` - show the command list in whisper
 
 Example queue acknowledgement:
 
