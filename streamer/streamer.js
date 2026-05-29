@@ -2,6 +2,7 @@ const fs = require('fs');
 const { spawn } = require('child_process');
 
 const { pathExists } = require('../utils/fs');
+const { ensureFallbackTrack } = require('../utils/media');
 
 function delay(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -276,7 +277,12 @@ class RadioStreamer {
     }
 
     if (!pathExists(this.fallbackTrackFile)) {
-      throw new Error(`Fallback track missing: ${this.fallbackTrackFile}`);
+      await ensureFallbackTrack({
+        filePath: this.fallbackTrackFile,
+        logger: this.logger,
+        durationSeconds: this.env.fallbackTrackDurationSeconds,
+        ffmpegBinary: this.env.ffmpegBinary,
+      });
     }
 
     return this.createFallbackTrack();
