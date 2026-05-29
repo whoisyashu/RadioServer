@@ -14,6 +14,7 @@ class Downloader {
     this.logger = logger;
     this.cacheFile = path.join(env.songsDir, 'index.json');
     this.cache = { tracksById: {} };
+    this.cacheByQuery = new Map();
     this.inFlight = new Map();
   }
 
@@ -37,6 +38,21 @@ class Downloader {
     const normalizedInput = String(input || '').trim();
     if (!normalizedInput) {
       throw new Error('A search query or URL is required');
+    }
+
+    const normalizedQuery = this.normalizeQuery(normalizedInput);
+    if (normalizedQuery && this.cacheByQuery.has(normalizedQuery)) {
+      const cachedByQuery = this.cacheByQuery.get(normalizedQuery);
+      if (cachedByQuery && (await this.isCachedTrackPlayable(cachedByQuery))) {
+        this.logger.info('Reusing cached query result', { query: normalizedInput, id: cachedByQuery.id, filePath: cachedByQuery.filePath });
+        const refreshed = this.touchTrack(cachedByQuery);
+        await this.saveCache();
+        return refreshed;
+      }
+
+      this.deleteCachedTrack(cachedByQuery?.id, cachedByQuery?.filePath);
+      this.cacheByQuery.delete(normalizedQuery);
+      await this.saveCache();
     }
 
     const candidate = await this.selectPlayableCandidate(normalizedInput);
@@ -68,6 +84,9 @@ class Downloader {
     try {
       const track = await downloadPromise;
       this.cache.tracksById[track.id] = track;
+      if (normalizedQuery) {
+        this.cacheByQuery.set(normalizedQuery, track);
+      }
       await this.saveCache();
       return track;
     } finally {
@@ -107,23 +126,17 @@ class Downloader {
       args.push('--cookies', this.env.ytdlp.cookiesFile);
     }
 
+    if (this.env.ytdlp.cookiesFromBrowser) {
+      args.push('--cookies-from-browser', this.env.ytdlp.cookiesFromBrowser);
+    }
+
     if (this.env.ytdlp.extractorArgs) {
       args.push('--extractor-args', this.env.ytdlp.extractorArgs);
     }
 
     args.push(...parseArgString(this.env.ytdlp.extraArgs));
-    // Append configured JS runtime when running on Linux (WSL) to support yt-dlp signature extraction.
-    // Only add if user configured a runtime and the args don't already include --js-runtimes.
-    try {
-      if (this.env.ytdlp.jsRuntime && process.platform === 'linux') {
-        const hasRuntime = args.some((a) => String(a).startsWith('--js-runtimes'));
-        if (!hasRuntime) {
-          args.push('--js-runtimes', this.env.ytdlp.jsRuntime);
-        }
-      }
-    } catch (e) {
-      // defensive: do nothing if platform check fails
-    }
+    this.injectRuntimeArgs(args);
+    this.injectFfmpegArgs(args);
     args.push(target);
 
     this.logger.info('Searching YouTube candidates', { target, candidateCount: this.env.ytdlp.searchResults });
@@ -175,22 +188,16 @@ class Downloader {
       args.push('--cookies', this.env.ytdlp.cookiesFile);
     }
 
+    if (this.env.ytdlp.cookiesFromBrowser) {
+      args.push('--cookies-from-browser', this.env.ytdlp.cookiesFromBrowser);
+    }
+
     if (this.env.ytdlp.extractorArgs) {
       args.push('--extractor-args', this.env.ytdlp.extractorArgs);
     }
 
     args.push(...parseArgString(this.env.ytdlp.extraArgs));
-    // Append configured JS runtime only on Linux hosts where it's required (WSL with node at /usr/bin/node)
-    try {
-      if (this.env.ytdlp.jsRuntime && process.platform === 'linux') {
-        const hasRuntime = args.some((a) => String(a).startsWith('--js-runtimes'));
-        if (!hasRuntime) {
-          args.push('--js-runtimes', this.env.ytdlp.jsRuntime);
-        }
-      }
-    } catch (e) {
-      // ignore
-    }
+    this.injectRuntimeArgs(args);
     args.push(target);
 
     this.logger.info('Downloading track', {
@@ -230,6 +237,36 @@ class Downloader {
     await validateAudioFile({ ffmpegBinary: this.env.ffmpegBinary, filePath });
   }
 
+  injectRuntimeArgs(args) {
+    const runtime = String(this.env.ytdlp.jsRuntime || '').trim();
+    if (!runtime || process.platform !== 'linux') {
+      return;
+    }
+
+    const hasRuntime = args.some((value) => String(value).startsWith('--js-runtimes'));
+    if (!hasRuntime) {
+      args.push('--js-runtimes', runtime);
+    }
+  }
+
+  injectFfmpegArgs(args) {
+    const rawLocation = String(this.env.ffmpegLocation || '').trim();
+    if (!rawLocation) {
+      return;
+    }
+
+    const ffmpegLocation = rawLocation.toLowerCase().endsWith('.exe')
+      ? path.dirname(rawLocation)
+      : rawLocation;
+
+    args.unshift(ffmpegLocation);
+    args.unshift('--ffmpeg-location');
+  }
+
+  normalizeQuery(query) {
+    return String(query || '').trim().toLowerCase();
+  }
+
   createTrackRecord(candidate, target, filePath) {
     const now = new Date().toISOString();
     return {
@@ -255,12 +292,31 @@ class Downloader {
     };
 
     this.cache.tracksById[updated.id] = updated;
+    for (const [query, cachedTrack] of Array.from(this.cacheByQuery.entries())) {
+      if (cachedTrack && cachedTrack.id === updated.id) {
+        this.cacheByQuery.set(query, updated);
+      }
+    }
     return updated;
   }
 
   deleteCachedTrack(trackId, filePath) {
     if (trackId && this.cache.tracksById[trackId]) {
       delete this.cache.tracksById[trackId];
+    }
+
+    for (const [query, cachedTrack] of Array.from(this.cacheByQuery.entries())) {
+      if (!cachedTrack) {
+        this.cacheByQuery.delete(query);
+        continue;
+      }
+
+      if (
+        (trackId && cachedTrack.id === trackId) ||
+        (filePath && cachedTrack.filePath === filePath)
+      ) {
+        this.cacheByQuery.delete(query);
+      }
     }
 
     if (filePath) {
