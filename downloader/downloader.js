@@ -140,6 +140,7 @@ class Downloader {
 
     args.push(...parseArgString(this.env.ytdlp.extraArgs));
     this.injectRuntimeArgs(args);
+    this.injectRemoteComponentsArgs(args);
     this.injectFfmpegArgs(args);
     args.push(target);
 
@@ -202,6 +203,7 @@ class Downloader {
 
     args.push(...parseArgString(this.env.ytdlp.extraArgs));
     this.injectRuntimeArgs(args);
+    this.injectRemoteComponentsArgs(args);
     args.push(target);
 
     this.logger.info('Downloading track', {
@@ -251,6 +253,18 @@ class Downloader {
     const hasRuntime = args.some((value) => String(value).startsWith('--js-runtimes'));
     if (!hasRuntime) {
       args.push('--js-runtimes', runtime);
+    }
+  }
+
+  injectRemoteComponentsArgs(args) {
+    const remoteComponents = String(this.env.ytdlp.remoteComponents || '').trim();
+    if (!remoteComponents || process.platform !== 'linux') {
+      return;
+    }
+
+    const hasRemoteComponents = args.some((value) => String(value).startsWith('--remote-components'));
+    if (!hasRemoteComponents) {
+      args.push('--remote-components', remoteComponents);
     }
   }
 

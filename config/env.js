@@ -81,6 +81,7 @@ const env = {
     extractorArgs: process.env.YTDLP_EXTRACTOR_ARGS || '',
     extraArgs: process.env.YTDLP_EXTRA_ARGS || '',
     jsRuntime: process.env.YTDLP_JS_RUNTIME || process.env.YTDLP_JS_RUNTIMES || '',
+    remoteComponents: String(process.env.YTDLP_REMOTE_COMPONENTS || '').trim() || (process.platform === 'linux' ? 'ejs:github' : ''),
     searchResults: toNumber(process.env.YTDLP_SEARCH_RESULTS, 5),
     maxDurationSeconds: toNumber(process.env.YTDLP_MAX_DURATION_SECONDS, 900),
   },
