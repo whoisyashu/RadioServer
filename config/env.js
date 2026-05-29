@@ -1,4 +1,5 @@
 const path = require('path');
+const fs = require('fs');
 const dotenv = require('dotenv');
 
 dotenv.config();
@@ -61,7 +62,21 @@ const env = {
   },
   ytdlp: {
     bin: process.env.YTDLP_BIN || 'yt-dlp',
-    cookiesFile: process.env.YTDLP_COOKIES_FILE ? path.resolve(rootDir, process.env.YTDLP_COOKIES_FILE) : null,
+    // Prefer explicit env var, otherwise auto-detect a cookies.txt at project root
+    cookiesFile: (function () {
+      if (process.env.YTDLP_COOKIES_FILE) {
+        return path.resolve(rootDir, process.env.YTDLP_COOKIES_FILE);
+      }
+      const defaultCookies = path.resolve(rootDir, 'cookies.txt');
+      try {
+        if (fs.existsSync(defaultCookies)) {
+          return defaultCookies;
+        }
+      } catch (err) {
+        // ignore
+      }
+      return null;
+    })(),
     cookiesFromBrowser: String(process.env.YTDLP_COOKIES_FROM_BROWSER || '').trim(),
     extractorArgs: process.env.YTDLP_EXTRACTOR_ARGS || '',
     extraArgs: process.env.YTDLP_EXTRA_ARGS || '',
