@@ -7,11 +7,13 @@ function createApp({ env, logger, downloader, queueManager, streamer }) {
 
   function extractRequester(body = {}) {
     const requesterId = body.requesterId || body.userId || body.user?.id || null;
+    const requesterUsername = body.requesterUsername || body.userUsername || body.user?.username || null;
     const requesterName = body.requesterName || body.userName || body.user?.name || body.user?.displayName || null;
     const requesterDisplayName = body.requesterDisplayName || body.userDisplayName || body.user?.displayName || requesterName || null;
 
     return {
       requesterId,
+      requesterUsername,
       requesterName,
       requesterDisplayName,
       requestedBy: requesterDisplayName || requesterName || requesterId || 'system',
@@ -98,6 +100,7 @@ function createApp({ env, logger, downloader, queueManager, streamer }) {
         duration: null,
         isPromotion: true,
         requesterId: 'system',
+        requesterUsername: 'system',
         requesterName: 'system',
         requesterDisplayName: 'system',
         requestedBy: 'system',
