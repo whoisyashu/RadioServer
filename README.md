@@ -8,7 +8,7 @@ Standalone Node.js radio backend designed to stream local cached MP3 files throu
 - starts streaming only after the first authenticated play request
 - keeps a single FFmpeg streaming process alive for the active session
 - feeds FFmpeg with cached MP3 files only
-- loops a generated fallback MP3 when the queue is empty
+- stays idle when the queue is empty and waits for bot or user requests
 - tracks internal radio states for later bot/dashboard integration
 - publishes the stream through Icecast at `/stream`
 - exposes authenticated REST endpoints for queue control

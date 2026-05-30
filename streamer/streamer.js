@@ -2,19 +2,17 @@ const fs = require('fs');
 const { spawn } = require('child_process');
 
 const { pathExists } = require('../utils/fs');
-const { ensureFallbackTrack } = require('../utils/media');
 
 function delay(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 class RadioStreamer {
-  constructor({ env, logger, queueManager, downloader, fallbackTrackFile }) {
+  constructor({ env, logger, queueManager, downloader }) {
     this.env = env;
     this.logger = logger;
     this.queueManager = queueManager;
     this.downloader = downloader;
-    this.fallbackTrackFile = fallbackTrackFile;
     this.state = 'idle';
     this.running = false;
     this.sessionPromise = null;
@@ -34,10 +32,6 @@ class RadioStreamer {
         return;
       }
 
-      if (this.currentTrack?.isFallback && this.currentAbortController) {
-        this.state = 'switching';
-        this.currentAbortController.abort();
-      }
     });
 
     this.queueManager.on('queue-changed', () => {
@@ -94,7 +88,7 @@ class RadioStreamer {
 
   refreshPreparedNextTrack() {
     const queuedNext = this.queueManager.peekNext();
-    this.preparedNextTrack = queuedNext || this.createFallbackTrack();
+    this.preparedNextTrack = queuedNext || null;
   }
 
   status() {
@@ -128,16 +122,14 @@ class RadioStreamer {
 
           this.currentTrack = this.queueManager.setNowPlaying(track);
           this.currentAbortController = new AbortController();
-          this.state = track.isFallback ? 'idle' : 'preparing';
+          this.state = 'preparing';
 
           const outcome = await this.pipeTrackToFfmpeg(track, this.currentAbortController.signal);
 
           if (outcome === 'error') {
             this.state = 'error';
             this.queueManager.finishNowPlaying('error');
-            if (!track.isFallback) {
-              await this.handleTrackFailure(track);
-            }
+            await this.handleTrackFailure(track);
             this.currentAbortController = null;
             this.currentTrack = null;
             continue;
@@ -151,12 +143,10 @@ class RadioStreamer {
             await this.downloader.saveCache();
           }
 
-          if (!track.isFallback) {
-            await this.downloader.pruneCache({
-              keepIds: [this.currentTrack?.id, this.preparedNextTrack?.id].filter(Boolean),
-              activeFilePaths: [track.filePath, this.preparedNextTrack?.filePath].filter(Boolean),
-            });
-          }
+          await this.downloader.pruneCache({
+            keepIds: [this.currentTrack?.id, this.preparedNextTrack?.id].filter(Boolean),
+            activeFilePaths: [track.filePath, this.preparedNextTrack?.filePath].filter(Boolean),
+          });
 
           this.currentAbortController = null;
           this.currentTrack = null;
@@ -275,25 +265,14 @@ class RadioStreamer {
           id: queuedTrack.id,
           filePath: queuedTrack.filePath,
         });
-        return this.createFallbackTrack();
+        return null;
       }
 
       return queuedTrack;
     }
 
-    if (!pathExists(this.fallbackTrackFile)) {
-      await ensureFallbackTrack({
-        filePath: this.fallbackTrackFile,
-        logger: this.logger,
-        durationSeconds: this.env.fallbackTrackDurationSeconds,
-        ffmpegBinary: this.env.ffmpegBinary,
-      });
-    }
-
-    return this.createFallbackTrack();
+    return null;
   }
-
-  
 
   async handleTrackFailure(track) {
     this.logger.warn('Removing corrupt or unusable track from cache', { id: track.id, filePath: track.filePath });
@@ -304,21 +283,8 @@ class RadioStreamer {
       activeFilePaths: [this.preparedNextTrack?.filePath].filter(Boolean),
     });
   }
-
-  createFallbackTrack() {
-    return {
-      id: 'fallback',
-      title: 'Fallback Audio',
-      filePath: this.fallbackTrackFile,
-      duration: this.env.fallbackTrackDurationSeconds,
-      isFallback: true,
-      source: 'local-fallback',
-      status: 'idle',
-    };
-  }
-
   shouldDeleteTrackAfterPlayback(track) {
-    if (!track || track.isFallback || track.isPromotion) {
+    if (!track || track.isPromotion) {
       return false;
     }
 

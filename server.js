@@ -3,7 +3,7 @@ const path = require('path');
 const { env } = require('./config/env');
 const { createLogger } = require('./utils/logger');
 const { ensureDirectory } = require('./utils/fs');
-const { ensureFallbackTrack, ensurePromoTrack } = require('./utils/media');
+const { ensurePromoTrack } = require('./utils/media');
 const { Downloader } = require('./downloader/downloader');
 const { QueueManager } = require('./queue/queueManager');
 const { RadioStreamer } = require('./streamer/streamer');
@@ -24,17 +24,10 @@ async function main() {
     icecast: `${env.icecast.host}:${env.icecast.port}${env.icecast.mount}`,
   });
 
-  await ensureFallbackTrack({
-    filePath: env.fallbackTrackFile,
-    logger,
-    durationSeconds: env.fallbackTrackDurationSeconds,
-    ffmpegBinary: env.ffmpegBinary,
-  });
-
   await ensurePromoTrack({
     filePath: env.promotionTrackFile,
     logger,
-    durationSeconds: env.fallbackTrackDurationSeconds,
+    durationSeconds: env.promoTrackDurationSeconds,
     ffmpegBinary: env.ffmpegBinary,
   });
 
@@ -47,7 +40,6 @@ async function main() {
     logger,
     queueManager,
     downloader,
-    fallbackTrackFile: env.fallbackTrackFile,
   });
 
   queueManager.on('queue-changed', () => {
