@@ -3,7 +3,7 @@ const path = require('path');
 const { env } = require('./config/env');
 const { createLogger } = require('./utils/logger');
 const { ensureDirectory } = require('./utils/fs');
-const { ensureFallbackTrack } = require('./utils/media');
+const { ensureFallbackTrack, ensurePromoTrack } = require('./utils/media');
 const { Downloader } = require('./downloader/downloader');
 const { QueueManager } = require('./queue/queueManager');
 const { RadioStreamer } = require('./streamer/streamer');
@@ -26,6 +26,13 @@ async function main() {
 
   await ensureFallbackTrack({
     filePath: env.fallbackTrackFile,
+    logger,
+    durationSeconds: env.fallbackTrackDurationSeconds,
+    ffmpegBinary: env.ffmpegBinary,
+  });
+
+  await ensurePromoTrack({
+    filePath: env.promotionTrackFile,
     logger,
     durationSeconds: env.fallbackTrackDurationSeconds,
     ffmpegBinary: env.ffmpegBinary,

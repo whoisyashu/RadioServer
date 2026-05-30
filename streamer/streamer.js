@@ -146,6 +146,11 @@ class RadioStreamer {
           this.state = 'cleanup';
           this.queueManager.finishNowPlaying(outcome === 'aborted' ? 'skipped' : 'completed');
 
+          if (outcome === 'completed' && this.shouldDeleteTrackAfterPlayback(track)) {
+            this.downloader.deleteCachedTrack(track.id, track.filePath);
+            await this.downloader.saveCache();
+          }
+
           if (!track.isFallback) {
             await this.downloader.pruneCache({
               keepIds: [this.currentTrack?.id, this.preparedNextTrack?.id].filter(Boolean),
@@ -310,6 +315,23 @@ class RadioStreamer {
       source: 'local-fallback',
       status: 'idle',
     };
+  }
+
+  shouldDeleteTrackAfterPlayback(track) {
+    if (!track || track.isFallback || track.isPromotion) {
+      return false;
+    }
+
+    if (String(track.id || '').toLowerCase() === 'promotion') {
+      return false;
+    }
+
+    const promotionFilePath = String(this.env.promotionTrackFile || '').trim();
+    if (promotionFilePath && track.filePath && pathExists(promotionFilePath) && track.filePath === promotionFilePath) {
+      return false;
+    }
+
+    return true;
   }
 
   buildIcecastUrl() {
