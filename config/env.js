@@ -86,7 +86,7 @@ const env = {
     maxDurationSeconds: toNumber(process.env.YTDLP_MAX_DURATION_SECONDS, 900),
   },
   cache: {
-    maxTracks: toNumber(process.env.CACHE_MAX_TRACKS, 250),
+    maxTracks: toNumber(process.env.CACHE_MAX_TRACKS, 120),
     maxAgeDays: toNumber(process.env.CACHE_MAX_AGE_DAYS, 30),
   },
 };

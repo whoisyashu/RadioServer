@@ -1,4 +1,5 @@
 const fs = require('fs');
+const path = require('path');
 const { spawn } = require('child_process');
 
 const { pathExists } = require('../utils/fs');
@@ -173,7 +174,8 @@ class RadioStreamer {
 
   async pipeTrackToFfmpeg(track, signal) {
     const icecastUrl = this.buildIcecastUrl();
-    this.logger.info('Spawning FFmpeg for track', { id: track.id, file: track.filePath, icecastUrl });
+    const isMp3Source = path.extname(String(track.filePath || '')).toLowerCase() === '.mp3';
+    this.logger.info('Spawning FFmpeg for track', { id: track.id, file: track.filePath, icecastUrl, mode: isMp3Source ? 'copy' : 'transcode' });
 
     return new Promise((resolve) => {
       let settled = false;
@@ -185,20 +187,30 @@ class RadioStreamer {
         '-i',
         track.filePath,
         '-vn',
-        '-ar',
-        String(this.env.streamSampleRate),
-        '-ac',
-        String(this.env.streamChannels),
-        '-c:a',
-        'libmp3lame',
-        '-b:a',
-        this.env.streamBitrate,
+      ];
+
+      if (isMp3Source) {
+        args.push('-c:a', 'copy');
+      } else {
+        args.push(
+          '-ar',
+          String(this.env.streamSampleRate),
+          '-ac',
+          String(this.env.streamChannels),
+          '-c:a',
+          'libmp3lame',
+          '-b:a',
+          this.env.streamBitrate,
+        );
+      }
+
+      args.push(
         '-content_type',
         'audio/mpeg',
         '-f',
         'mp3',
         icecastUrl,
-      ];
+      );
 
       const ff = spawn(this.env.ffmpegBinary, args, { stdio: ['ignore', 'ignore', 'pipe'] });
 
