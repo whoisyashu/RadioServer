@@ -138,10 +138,7 @@ class RadioStreamer {
           this.state = 'cleanup';
           this.queueManager.finishNowPlaying(outcome === 'aborted' ? 'skipped' : 'completed');
 
-          if (outcome === 'completed' && this.shouldDeleteTrackAfterPlayback(track)) {
-            this.downloader.deleteCachedTrack(track.id, track.filePath);
-            await this.downloader.saveCache();
-          }
+          await this.cleanupPlayedTrack(track);
 
           await this.downloader.pruneCache({
             keepIds: [this.currentTrack?.id, this.preparedNextTrack?.id].filter(Boolean),
@@ -282,6 +279,25 @@ class RadioStreamer {
       keepIds: [this.preparedNextTrack?.id].filter(Boolean),
       activeFilePaths: [this.preparedNextTrack?.filePath].filter(Boolean),
     });
+  }
+
+  async cleanupPlayedTrack(track) {
+    if (!track) {
+      return;
+    }
+
+    if (String(track.id || '').toLowerCase() === 'promotion' || track.isPromotion) {
+      return;
+    }
+
+    const promotionFilePath = String(this.env.promotionTrackFile || '').trim();
+    if (promotionFilePath && track.filePath && pathExists(promotionFilePath) && track.filePath === promotionFilePath) {
+      return;
+    }
+
+    this.logger.info('Deleting played track file', { id: track.id, filePath: track.filePath });
+    this.downloader.deleteCachedTrack(track.id, track.filePath);
+    await this.downloader.saveCache();
   }
   shouldDeleteTrackAfterPlayback(track) {
     if (!track || track.isPromotion) {
