@@ -1,0 +1,56 @@
+{
+  "tracksById": {
+    "djV11Xbc914": {
+      "id": "djV11Xbc914",
+      "title": "a-ha - Take On Me (Official Video) [4K]",
+      "webpageUrl": "https://www.youtube.com/watch?v=djV11Xbc914",
+      "originalUrl": "https://www.youtube.com/watch?v=djV11Xbc914",
+      "filePath": "C:\\Users\\mahes\\OneDrive\\Documents\\My Games\\RadioServer\\songs\\djV11Xbc914.mp3",
+      "duration": 244,
+      "uploader": "a-ha",
+      "source": "youtube",
+      "downloadedAt": "2026-05-29T07:00:40.837Z",
+      "lastUsedAt": "2026-05-29T07:00:40.837Z",
+      "playCount": 0
+    },
+    "dQw4w9WgXcQ": {
+      "id": "dQw4w9WgXcQ",
+      "title": "Rick Astley - Never Gonna Give You Up (Official Video) (4K Remaster)",
+      "webpageUrl": "https://www.youtube.com/watch?v=dQw4w9WgXcQ",
+      "originalUrl": "https://www.youtube.com/watch?v=dQw4w9WgXcQ",
+      "filePath": "/mnt/c/Users/mahes/OneDrive/Documents/My Games/RadioServer/songs/dQw4w9WgXcQ.mp3",
+      "duration": 213,
+      "uploader": "Rick Astley",
+      "source": "youtube",
+      "downloadedAt": "2026-05-29T08:28:19.316Z",
+      "lastUsedAt": "2026-05-29T08:28:19.316Z",
+      "playCount": 0
+    },
+    "FTQbiNvZqaY": {
+      "id": "FTQbiNvZqaY",
+      "title": "Toto - Africa (Official HD Video)",
+      "webpageUrl": "https://www.youtube.com/watch?v=FTQbiNvZqaY",
+      "originalUrl": "https://www.youtube.com/watch?v=FTQbiNvZqaY",
+      "filePath": "/mnt/c/Users/mahes/OneDrive/Documents/My Games/RadioServer/songs/FTQbiNvZqaY.mp3",
+      "duration": 271,
+      "uploader": "TOTO",
+      "source": "youtube",
+      "downloadedAt": "2026-05-29T08:28:31.659Z",
+      "lastUsedAt": "2026-05-29T08:28:31.659Z",
+      "playCount": 0
+    },
+    "kJQP7kiw5Fk": {
+      "id": "kJQP7kiw5Fk",
+      "title": "Luis Fonsi - Despacito ft. Daddy Yankee",
+      "webpageUrl": "https://www.youtube.com/watch?v=kJQP7kiw5Fk",
+      "originalUrl": "https://www.youtube.com/watch?v=kJQP7kiw5Fk",
+      "filePath": "/mnt/c/Users/mahes/OneDrive/Documents/My Games/RadioServer/songs/kJQP7kiw5Fk.mp3",
+      "duration": 282,
+      "uploader": "Luis Fonsi",
+      "source": "youtube",
+      "downloadedAt": "2026-05-29T12:06:12.442Z",
+      "lastUsedAt": "2026-05-29T12:06:12.442Z",
+      "playCount": 0
+    }
+  }
+}

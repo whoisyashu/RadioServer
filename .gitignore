@@ -1,9 +1,6 @@
 node_modules/
 .env
 logs/*.log
-songs/*.mp3
-songs/fallback.mp3
-songs/index.json
-!songs/.gitkeep
+
 !logs/.gitkeep
 musicBot/
