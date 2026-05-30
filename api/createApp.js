@@ -5,6 +5,19 @@ const { authMiddleware } = require('../middleware/auth');
 function createApp({ env, logger, downloader, queueManager, streamer }) {
   const app = express();
 
+  function extractRequester(body = {}) {
+    const requesterId = body.requesterId || body.userId || body.user?.id || null;
+    const requesterName = body.requesterName || body.userName || body.user?.name || body.user?.displayName || null;
+    const requesterDisplayName = body.requesterDisplayName || body.userDisplayName || body.user?.displayName || requesterName || null;
+
+    return {
+      requesterId,
+      requesterName,
+      requesterDisplayName,
+      requestedBy: requesterDisplayName || requesterName || requesterId || 'system',
+    };
+  }
+
   app.disable('x-powered-by');
   app.use(helmet());
   app.use(express.json({ limit: '1mb' }));
@@ -55,7 +68,11 @@ function createApp({ env, logger, downloader, queueManager, streamer }) {
       }
 
       const track = await downloader.resolveAndDownload(input);
-      const queued = queueManager.enqueue(track);
+      const requester = extractRequester(body);
+      const queued = queueManager.enqueue({
+        ...track,
+        ...requester,
+      });
       void streamer.ensureSessionRunning().catch((error) => {
         logger.error('Failed to start playback session', error);
       });
@@ -80,6 +97,10 @@ function createApp({ env, logger, downloader, queueManager, streamer }) {
         source: 'local-promotion',
         duration: null,
         isPromotion: true,
+        requesterId: 'system',
+        requesterName: 'system',
+        requesterDisplayName: 'system',
+        requestedBy: 'system',
       };
 
       const queued = queueManager.enqueueFront(promoTrack);
