@@ -16,6 +16,43 @@ class Downloader {
     this.cache = { tracksById: {} };
     this.cacheByQuery = new Map();
     this.inFlight = new Map();
+    this.maxConcurrentDownloads = (env.download && Number(env.download.maxConcurrentDownloads)) || 2;
+    this.activeDownloads = 0;
+    this.downloadQueue = [];
+  }
+
+  async _acquireDownloadSlot() {
+    if (!this.maxConcurrentDownloads || this.maxConcurrentDownloads <= 1) {
+      // no-op: single-threaded download
+      this.activeDownloads = 1;
+      return;
+    }
+
+    if (this.activeDownloads < this.maxConcurrentDownloads) {
+      this.activeDownloads++;
+      return;
+    }
+
+    await new Promise((resolve) => {
+      this.downloadQueue.push(resolve);
+    });
+    // slot granted
+    this.activeDownloads++;
+  }
+
+  _releaseDownloadSlot() {
+    if (!this.maxConcurrentDownloads || this.maxConcurrentDownloads <= 1) {
+      this.activeDownloads = 0;
+      return;
+    }
+
+    if (this.downloadQueue.length > 0) {
+      const next = this.downloadQueue.shift();
+      try { next(); } catch (e) {}
+      return;
+    }
+
+    this.activeDownloads = Math.max(0, this.activeDownloads - 1);
   }
 
   async loadCache() {
@@ -78,7 +115,15 @@ class Downloader {
       return this.inFlight.get(candidate.id);
     }
 
-    const downloadPromise = this.downloadTrack(candidate, normalizedInput);
+    const downloadPromise = (async () => {
+      await this._acquireDownloadSlot();
+      try {
+        return await this.downloadTrack(candidate, normalizedInput);
+      } finally {
+        this._releaseDownloadSlot();
+      }
+    })();
+
     this.inFlight.set(candidate.id, downloadPromise);
 
     try {

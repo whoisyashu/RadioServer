@@ -181,6 +181,8 @@ class RadioStreamer {
       let settled = false;
       const args = [
         '-hide_banner',
+        '-threads',
+        String(this.env.ffmpegThreads || 1),
         '-loglevel',
         'warning',
         '-re',

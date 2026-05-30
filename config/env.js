@@ -86,9 +86,14 @@ const env = {
     maxDurationSeconds: toNumber(process.env.YTDLP_MAX_DURATION_SECONDS, 900),
   },
   cache: {
-    maxTracks: toNumber(process.env.CACHE_MAX_TRACKS, 120),
+    maxTracks: toNumber(process.env.CACHE_MAX_TRACKS, 80),
     maxAgeDays: toNumber(process.env.CACHE_MAX_AGE_DAYS, 30),
   },
+  download: {
+    // Limit concurrent yt-dlp downloads to avoid CPU/memory spikes
+    maxConcurrentDownloads: toNumber(process.env.DOWNLOAD_MAX_CONCURRENT, 2),
+  },
+  ffmpegThreads: toNumber(process.env.FFMPEG_THREADS, 1),
 };
 
 module.exports = { env };
