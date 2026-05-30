@@ -55,8 +55,8 @@ async function main() {
     streamer,
   });
 
-  const server = app.listen(env.apiPort, () => {
-    logger.info('HTTP API listening', { port: env.apiPort });
+  const server = app.listen(env.apiPort, env.apiHost, () => {
+    logger.info('HTTP API listening', { host: env.apiHost, port: env.apiPort });
   });
 
   const shutdown = async (signal) => {

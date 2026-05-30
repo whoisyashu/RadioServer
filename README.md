@@ -68,9 +68,11 @@ cp .env.example .env
 
 6. Fill in `API_TOKEN` and `ICECAST_PASSWORD`.
 
-7. If you want the stream to be reachable from a domain or VPS tunnel, set `PUBLIC_STREAM_URL` to the public listener URL ending in `/stream`.
+7. If you are deploying to a VPS and want the API reachable from outside the machine, keep `HOST=0.0.0.0` in `.env` and make sure port `3000` is allowed through the firewall.
 
-8. Start the radio server:
+8. If you want the stream to be reachable from a domain or VPS tunnel, set `PUBLIC_STREAM_URL` to the public listener URL ending in `/stream`.
+
+9. Start the radio server:
 
 ```bash
 npm start

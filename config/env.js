@@ -41,6 +41,7 @@ const env = {
   fallbackTrackFile: path.resolve(rootDir, process.env.FALLBACK_TRACK_FILE || 'songs/fallback.mp3'),
   promotionTrackFile: path.resolve(rootDir, process.env.PROMOTION_TRACK_FILE || 'songs/promotion.mp3'),
   apiPort: toNumber(process.env.PORT || process.env.API_PORT, 3000),
+  apiHost: String(process.env.HOST || process.env.API_HOST || '0.0.0.0').trim() || '0.0.0.0',
   apiToken: requiredEnv(['API_TOKEN']),
   logLevel: String(process.env.LOG_LEVEL || 'info').toLowerCase(),
   ffmpegBinary: process.env.FFMPEG_BIN || 'ffmpeg',
