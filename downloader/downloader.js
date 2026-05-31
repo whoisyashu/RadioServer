@@ -9,6 +9,12 @@ const { bus } = require('../events/events');
 
 const execFileAsync = promisify(execFile);
 
+function addArgPair(args, flag, value) {
+  if (!args.includes(flag)) {
+    args.push(flag, String(value));
+  }
+}
+
 class Downloader {
   constructor({ env, logger }) {
     this.env = env;
@@ -184,12 +190,11 @@ class Downloader {
       args.push('--extractor-args', this.env.ytdlp.extractorArgs);
     }
 
-    // safety defaults to reduce network/CPU impact if not overridden
-    const safetyDefaults = ['--socket-timeout', '15', '--retries', '2', '--fragment-retries', '2', '--concurrent-fragments', '1'];
     args.push(...parseArgString(this.env.ytdlp.extraArgs));
-    for (const d of safetyDefaults) {
-      if (!args.includes(d)) args.push(d);
-    }
+    addArgPair(args, '--socket-timeout', 15);
+    addArgPair(args, '--retries', 2);
+    addArgPair(args, '--fragment-retries', 2);
+    addArgPair(args, '--concurrent-fragments', 1);
     this.injectRuntimeArgs(args);
     this.injectRemoteComponentsArgs(args);
     this.injectFfmpegArgs(args);
@@ -264,11 +269,10 @@ class Downloader {
     });
 
     bus.emit('download-start', { id: candidate.id, title: candidate.title, target });
-    // safety defaults for downloads
-    const safetyDefaults = ['--socket-timeout', '15', '--retries', '2', '--fragment-retries', '2', '--concurrent-fragments', '1'];
-    for (const d of safetyDefaults) {
-      if (!args.includes(d)) args.push(d);
-    }
+    addArgPair(args, '--socket-timeout', 15);
+    addArgPair(args, '--retries', 2);
+    addArgPair(args, '--fragment-retries', 2);
+    addArgPair(args, '--concurrent-fragments', 1);
 
     await execFileAsync(this.env.ytdlp.bin, args, { maxBuffer: 10 * 1024 * 1024 });
     bus.emit('download-finished', { id: candidate.id, title: candidate.title, filePath });
