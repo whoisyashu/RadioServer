@@ -20,6 +20,32 @@ function createApp({ env, logger, downloader, queueManager, streamer }) {
     };
   }
 
+  function normalizePlayInput(body = {}) {
+    const candidates = [
+      body.url,
+      body.query,
+      body.input,
+      body.search,
+      body.track,
+      body.song,
+    ];
+
+    for (const candidate of candidates) {
+      if (typeof candidate === 'string' && candidate.trim()) {
+        return candidate.trim();
+      }
+
+      if (candidate && typeof candidate === 'object') {
+        const objectValue = candidate.url || candidate.query || candidate.input || candidate.search || candidate.title || candidate.name;
+        if (typeof objectValue === 'string' && objectValue.trim()) {
+          return objectValue.trim();
+        }
+      }
+    }
+
+    return '';
+  }
+
   app.disable('x-powered-by');
   app.use(helmet());
   app.use(express.json({ limit: '1mb' }));
@@ -63,7 +89,7 @@ function createApp({ env, logger, downloader, queueManager, streamer }) {
   app.post('/play', async (req, res, next) => {
     try {
       const body = req.body || {};
-      const input = body.url || body.query || body.input;
+      const input = normalizePlayInput(body);
 
       if (!input) {
         return res.status(400).json({ ok: false, error: 'Provide a query or url' });
