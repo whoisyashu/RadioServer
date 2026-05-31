@@ -1,10 +1,5 @@
-const fs = require('fs');
-const path = require('path');
-const { spawn } = require('child_process');
-
 const { pathExists } = require('../utils/fs');
 const { StreamEngine } = require('./streamEngine');
-const { bus } = require('../events/events');
 
 function delay(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -19,7 +14,6 @@ class RadioStreamer {
     this.state = 'idle';
     this.running = false;
     this.sessionPromise = null;
-    this.process = null;
     this.currentAbortController = null;
     this.currentTrack = null;
     this.preparedNextTrack = null;
@@ -28,14 +22,11 @@ class RadioStreamer {
 
     this.queueManager.on('track-added', () => {
       this.refreshPreparedNextTrack();
-
       if (!this.running) {
         void this.ensureSessionRunning().catch((error) => {
           this.logger.error('Playback session failed to start', error);
         });
-        return;
       }
-
     });
 
     this.queueManager.on('queue-changed', () => {
@@ -60,21 +51,12 @@ class RadioStreamer {
       this.currentAbortController.abort();
     }
 
-    if (this.process && !this.process.killed) {
-      this.process.kill('SIGTERM');
+    try {
+      await this.engine.stop();
+    } catch (error) {
+      this.logger.warn('Error stopping stream engine', error && error.message ? error.message : error);
     }
 
-    if (this.process) {
-      await new Promise((resolve) => {
-        const timeout = setTimeout(resolve, 1000);
-        this.process.once('close', () => {
-          clearTimeout(timeout);
-          resolve();
-        });
-      });
-    }
-
-    this.process = null;
     this.sessionPromise = null;
     this.currentAbortController = null;
     this.currentTrack = null;
@@ -84,16 +66,26 @@ class RadioStreamer {
 
   requestSkip() {
     this.state = 'switching';
-
     if (this.currentAbortController) {
       this.currentAbortController.abort();
     }
   }
-    try {
-      await this.engine.stop();
-    } catch (e) {
-      this.logger.warn('Error stopping stream engine', e && e.message ? e.message : e);
-    }
+
+  refreshPreparedNextTrack() {
+    const queuedNext = this.queueManager.peekNext();
+    this.preparedNextTrack = queuedNext || null;
+  }
+
+  status() {
+    const engineStatus = this.engine.status ? this.engine.status() : {};
+    return {
+      state: this.state,
+      running: this.running,
+      ffmpegPid: engineStatus.ffmpegPid || null,
+      currentTrack: this.currentTrack ? { ...this.currentTrack } : null,
+      preparedNextTrack: this.preparedNextTrack ? { ...this.preparedNextTrack } : null,
+      queueLength: this.queueManager.size(),
+      lastError: this.lastError,
     };
   }
 
@@ -103,6 +95,8 @@ class RadioStreamer {
 
   async runSession() {
     try {
+      this.engine.start();
+
       while (this.running) {
         try {
           const track = await this.pickNextTrack();
@@ -118,14 +112,7 @@ class RadioStreamer {
           this.currentAbortController = new AbortController();
           this.state = 'preparing';
 
-          // feed the track into the persistent engine
-          try {
-            await this.engine.feedTrack(track, { signal: this.currentAbortController.signal });
-            outcome = 'completed';
-          } catch (err) {
-            this.logger.error('Engine feed failed', err);
-            outcome = 'error';
-          }
+          const outcome = await this.pipeTrackToFfmpeg(track, this.currentAbortController.signal);
 
           if (outcome === 'error') {
             this.state = 'error';
@@ -158,12 +145,12 @@ class RadioStreamer {
         }
       }
     } finally {
-      // Ensure any lingering process is terminated
-      if (this.process && !this.process.killed) {
-        try { this.process.kill('SIGTERM'); } catch (e) {}
+      try {
+        await this.engine.stop();
+      } catch (error) {
+        this.logger.warn('Error during engine shutdown', error && error.message ? error.message : error);
       }
 
-      this.process = null;
       this.sessionPromise = null;
       this.currentAbortController = null;
       this.currentTrack = null;
@@ -173,15 +160,23 @@ class RadioStreamer {
   }
 
   async pipeTrackToFfmpeg(track, signal) {
-    // Deprecated: use StreamEngine.feedTrack
-    throw new Error('pipeTrackToFfmpeg is deprecated; StreamEngine.feedTrack should be used');
+    try {
+      await this.engine.feedTrack(track, { signal });
+      return signal?.aborted ? 'aborted' : 'completed';
+    } catch (error) {
+      this.lastError = error instanceof Error ? error.message : String(error);
+      this.logger.error('Engine feed failed', error);
+      return 'error';
+    }
   }
 
   async restartProcess() {
-    // ensure engine is restarted
     try {
       await this.engine.stop();
-    } catch (e) {}
+    } catch (error) {
+      this.logger.warn('Error stopping stream engine during restart', error && error.message ? error.message : error);
+    }
+
     this.engine.start();
   }
 
@@ -230,28 +225,6 @@ class RadioStreamer {
     this.logger.info('Deleting played track file', { id: track.id, filePath: track.filePath });
     this.downloader.deleteCachedTrack(track.id, track.filePath);
     await this.downloader.saveCache();
-  }
-  shouldDeleteTrackAfterPlayback(track) {
-    if (!track || track.isPromotion) {
-      return false;
-    }
-
-    if (String(track.id || '').toLowerCase() === 'promotion') {
-      return false;
-    }
-
-    const promotionFilePath = String(this.env.promotionTrackFile || '').trim();
-    if (promotionFilePath && track.filePath && pathExists(promotionFilePath) && track.filePath === promotionFilePath) {
-      return false;
-    }
-
-    return true;
-  }
-
-  buildIcecastUrl() {
-    const { host, port, mount, sourceUser, sourcePassword } = this.env.icecast;
-    const encodedPassword = encodeURIComponent(sourcePassword);
-    return `icecast://${sourceUser}:${encodedPassword}@${host}:${port}${mount}`;
   }
 }
 
