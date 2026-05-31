@@ -5,6 +5,7 @@ const { promisify } = require('util');
 const { parseArgString } = require('../utils/args');
 const { validateAudioFile } = require('../utils/audio');
 const { ensureDirectory, pathExists, readJson, removeFile, writeJson } = require('../utils/fs');
+const { bus } = require('../events/events');
 
 const execFileAsync = promisify(execFile);
 
@@ -183,7 +184,12 @@ class Downloader {
       args.push('--extractor-args', this.env.ytdlp.extractorArgs);
     }
 
+    // safety defaults to reduce network/CPU impact if not overridden
+    const safetyDefaults = ['--socket-timeout', '15', '--retries', '2', '--fragment-retries', '2', '--concurrent-fragments', '1'];
     args.push(...parseArgString(this.env.ytdlp.extraArgs));
+    for (const d of safetyDefaults) {
+      if (!args.includes(d)) args.push(d);
+    }
     this.injectRuntimeArgs(args);
     this.injectRemoteComponentsArgs(args);
     this.injectFfmpegArgs(args);
@@ -257,7 +263,15 @@ class Downloader {
       target,
     });
 
+    bus.emit('download-start', { id: candidate.id, title: candidate.title, target });
+    // safety defaults for downloads
+    const safetyDefaults = ['--socket-timeout', '15', '--retries', '2', '--fragment-retries', '2', '--concurrent-fragments', '1'];
+    for (const d of safetyDefaults) {
+      if (!args.includes(d)) args.push(d);
+    }
+
     await execFileAsync(this.env.ytdlp.bin, args, { maxBuffer: 10 * 1024 * 1024 });
+    bus.emit('download-finished', { id: candidate.id, title: candidate.title, filePath });
 
     if (!pathExists(filePath)) {
       throw new Error(`Expected cached MP3 file not found after download: ${filePath}`);

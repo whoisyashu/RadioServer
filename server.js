@@ -63,6 +63,16 @@ async function main() {
     await streamer.stop();
     await downloader.saveCache();
     server.close(() => logger.info('HTTP server closed'));
+    // best-effort: kill lingering ffmpeg/yt-dlp on Linux to avoid orphans
+    try {
+      if (process.platform === 'linux') {
+        const { spawnSync } = require('child_process');
+        try { spawnSync('pkill', ['-f', 'yt-dlp']); } catch (e) {}
+        try { spawnSync('pkill', ['-f', 'ffmpeg']); } catch (e) {}
+      }
+    } catch (e) {
+      logger.warn('Failed to pkill lingering processes', e && e.message ? e.message : e);
+    }
     process.exit(0);
   };
 

@@ -3,6 +3,8 @@ const path = require('path');
 const { spawn } = require('child_process');
 
 const { pathExists } = require('../utils/fs');
+const { StreamEngine } = require('./streamEngine');
+const { bus } = require('../events/events');
 
 function delay(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -22,6 +24,7 @@ class RadioStreamer {
     this.currentTrack = null;
     this.preparedNextTrack = null;
     this.lastError = null;
+    this.engine = new StreamEngine({ env, logger });
 
     this.queueManager.on('track-added', () => {
       this.refreshPreparedNextTrack();
@@ -86,21 +89,11 @@ class RadioStreamer {
       this.currentAbortController.abort();
     }
   }
-
-  refreshPreparedNextTrack() {
-    const queuedNext = this.queueManager.peekNext();
-    this.preparedNextTrack = queuedNext || null;
-  }
-
-  status() {
-    return {
-      state: this.state,
-      running: this.running,
-      ffmpegPid: this.process?.pid || null,
-      currentTrack: this.currentTrack ? { ...this.currentTrack } : null,
-      preparedNextTrack: this.preparedNextTrack ? { ...this.preparedNextTrack } : null,
-      queueLength: this.queueManager.size(),
-      lastError: this.lastError,
+    try {
+      await this.engine.stop();
+    } catch (e) {
+      this.logger.warn('Error stopping stream engine', e && e.message ? e.message : e);
+    }
     };
   }
 
@@ -125,7 +118,14 @@ class RadioStreamer {
           this.currentAbortController = new AbortController();
           this.state = 'preparing';
 
-          const outcome = await this.pipeTrackToFfmpeg(track, this.currentAbortController.signal);
+          // feed the track into the persistent engine
+          try {
+            await this.engine.feedTrack(track, { signal: this.currentAbortController.signal });
+            outcome = 'completed';
+          } catch (err) {
+            this.logger.error('Engine feed failed', err);
+            outcome = 'error';
+          }
 
           if (outcome === 'error') {
             this.state = 'error';
@@ -173,98 +173,16 @@ class RadioStreamer {
   }
 
   async pipeTrackToFfmpeg(track, signal) {
-    const icecastUrl = this.buildIcecastUrl();
-    const isMp3Source = path.extname(String(track.filePath || '')).toLowerCase() === '.mp3';
-    this.logger.info('Spawning FFmpeg for track', { id: track.id, file: track.filePath, icecastUrl, mode: isMp3Source ? 'copy' : 'transcode' });
-
-    return new Promise((resolve) => {
-      let settled = false;
-      const args = [
-        '-hide_banner',
-        '-threads',
-        String(this.env.ffmpegThreads || 1),
-        '-loglevel',
-        'warning',
-        '-re',
-        '-i',
-        track.filePath,
-        '-vn',
-      ];
-
-      if (isMp3Source) {
-        args.push('-c:a', 'copy');
-      } else {
-        args.push(
-          '-ar',
-          String(this.env.streamSampleRate),
-          '-ac',
-          String(this.env.streamChannels),
-          '-c:a',
-          'libmp3lame',
-          '-b:a',
-          this.env.streamBitrate,
-        );
-      }
-
-      args.push(
-        '-content_type',
-        'audio/mpeg',
-        '-f',
-        'mp3',
-        icecastUrl,
-      );
-
-      const ff = spawn(this.env.ffmpegBinary, args, { stdio: ['ignore', 'ignore', 'pipe'] });
-
-      ff.stderr.on('data', (chunk) => {
-        this.logger.debug('FFmpeg', { stderr: chunk.toString('utf8').trim() });
-      });
-
-      const finish = (value) => {
-        if (!settled) {
-          settled = true;
-          resolve(value);
-        }
-      };
-
-      const fail = (err) => {
-        if (!settled) {
-          settled = true;
-          this.lastError = err instanceof Error ? err.message : String(err);
-          this.logger.error('FFmpeg track process failed', err);
-          resolve('error');
-        }
-      };
-
-      const onClose = (code, signal) => {
-        if (code === 0) {
-          finish('completed');
-        } else if (!settled) {
-          fail(new Error(`FFmpeg exited with code ${code}`));
-        }
-      };
-
-      ff.once('close', onClose);
-
-      if (signal) {
-        signal.addEventListener('abort', () => {
-          try { ff.kill('SIGTERM'); } catch (e) {}
-          finish('aborted');
-        }, { once: true });
-      }
-    }).catch((error) => {
-      this.lastError = error.message;
-      this.logger.error('Track spawn failed', error);
-      return 'error';
-    });
+    // Deprecated: use StreamEngine.feedTrack
+    throw new Error('pipeTrackToFfmpeg is deprecated; StreamEngine.feedTrack should be used');
   }
 
   async restartProcess() {
-    if (this.process && !this.process.killed) {
-      this.process.kill('SIGTERM');
-    }
-
-    this.process = null;
+    // ensure engine is restarted
+    try {
+      await this.engine.stop();
+    } catch (e) {}
+    this.engine.start();
   }
 
   async pickNextTrack() {
