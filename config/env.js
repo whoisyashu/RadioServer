@@ -46,7 +46,7 @@ const env = {
   ffmpegBinary: process.env.FFMPEG_BIN || 'ffmpeg',
   ffmpegLocation: String(process.env.FFMPEG_LOCATION || '').trim(),
   promoTrackDurationSeconds: toNumber(process.env.PROMOTION_TRACK_DURATION_SECONDS, 3),
-  streamBitrate: String(process.env.STREAM_BITRATE || '128k'),
+  streamBitrate: String(process.env.STREAM_BITRATE || '96k'),
   streamSampleRate: toNumber(process.env.STREAM_SAMPLE_RATE, 44100),
   streamChannels: toNumber(process.env.STREAM_CHANNELS, 2),
   publicStreamUrl: String(process.env.PUBLIC_STREAM_URL || '').trim() || null,
@@ -82,16 +82,16 @@ const env = {
     extraArgs: process.env.YTDLP_EXTRA_ARGS || '',
     jsRuntime: process.env.YTDLP_JS_RUNTIME || process.env.YTDLP_JS_RUNTIMES || '',
     remoteComponents: String(process.env.YTDLP_REMOTE_COMPONENTS || '').trim() || (process.platform === 'linux' ? 'ejs:github' : ''),
-    searchResults: toNumber(process.env.YTDLP_SEARCH_RESULTS, 5),
+    searchResults: toNumber(process.env.YTDLP_SEARCH_RESULTS, 3),
     maxDurationSeconds: toNumber(process.env.YTDLP_MAX_DURATION_SECONDS, 900),
   },
   cache: {
-    maxTracks: toNumber(process.env.CACHE_MAX_TRACKS, 80),
+    maxTracks: toNumber(process.env.CACHE_MAX_TRACKS, 60),
     maxAgeDays: toNumber(process.env.CACHE_MAX_AGE_DAYS, 30),
   },
   download: {
     // Limit concurrent yt-dlp downloads to avoid CPU/memory spikes
-    maxConcurrentDownloads: toNumber(process.env.DOWNLOAD_MAX_CONCURRENT, 2),
+    maxConcurrentDownloads: toNumber(process.env.DOWNLOAD_MAX_CONCURRENT, 1),
   },
   ffmpegThreads: toNumber(process.env.FFMPEG_THREADS, 1),
 };
