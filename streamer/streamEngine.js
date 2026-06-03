@@ -1,4 +1,4 @@
-const { spawn } = require('child_process');
+const { spawn, spawnSync } = require('child_process');
 const fs = require('fs');
 const path = require('path');
 const { bus } = require('../events/events');
@@ -15,6 +15,43 @@ class StreamEngine {
     this.transientProcs = new Set();
   }
 
+  status() {
+    return {
+      running: this.running,
+      ffmpegPid: this.main?.pid || null,
+      transientCount: this.transientProcs.size,
+      lastError: this.lastError || null,
+      mount: this.env.icecast?.mount || null,
+    };
+  }
+
+  killStaleProcesses() {
+    if (process.platform !== 'linux') {
+      return;
+    }
+
+    try {
+      const output = spawnSync('pgrep', ['-af', this.env.ffmpegBinary || 'ffmpeg'], { encoding: 'utf8' });
+      const lines = String(output.stdout || '').trim().split('\n').filter(Boolean);
+      const mountMarker = `${this.env.icecast.host}:${this.env.icecast.port}${this.env.icecast.mount}`;
+      for (const line of lines) {
+        const pid = Number(line.split(' ')[0]);
+        if (!Number.isFinite(pid) || pid <= 0) continue;
+        const cmd = line.slice(String(pid).length).trim();
+        if (!cmd.includes('icecast://')) continue;
+        if (!cmd.includes(mountMarker)) continue;
+        if (this.main && pid === this.main.pid) continue;
+        try {
+          process.kill(pid, 'SIGTERM');
+        } catch (error) {
+          // ignore orphan cleanup failures
+        }
+      }
+    } catch (error) {
+      this.logger.warn('Failed to inspect stale ffmpeg processes', error && error.message ? error.message : error);
+    }
+  }
+
   buildIcecastUrl() {
     const { host, port, mount, sourceUser, sourcePassword } = this.env.icecast;
     const encodedPassword = encodeURIComponent(sourcePassword);
@@ -23,6 +60,10 @@ class StreamEngine {
 
   start() {
     if (this.running) return;
+    if (this.main && !this.main.killed) {
+      try { this.main.kill('SIGTERM'); } catch (e) {}
+    }
+    this.killStaleProcesses();
     this.icecastUrl = this.buildIcecastUrl();
     const args = [
       '-hide_banner',
@@ -49,12 +90,15 @@ class StreamEngine {
         this.running = false;
         this.main = null;
         this.mainStdin = null;
+        bus.emit('cleanup', { type: 'stream-engine-close', code });
         // notify listeners so streamer can restart if needed
         bus.emit('engine-stopped', { code });
       });
     } catch (err) {
       this.logger.error('Failed to spawn persistent ffmpeg', err);
       this.running = false;
+      this.lastError = err instanceof Error ? err.message : String(err);
+      bus.emit('error', { type: 'stream-engine-start', error: this.lastError });
     }
   }
 
@@ -71,6 +115,7 @@ class StreamEngine {
     this.main = null;
     this.mainStdin = null;
     this.running = false;
+    bus.emit('cleanup', { type: 'stream-engine-stop' });
   }
 
   // Feed a track into the persistent engine. Returns when the track finishes streaming.
@@ -78,8 +123,6 @@ class StreamEngine {
     if (!track || !track.filePath) throw new Error('Invalid track');
     if (!this.running) this.start();
     if (!this.mainStdin) throw new Error('Engine not ready');
-
-    bus.emit('track-start', { id: track.id, title: track.title });
 
     const ext = path.extname(track.filePath || '').toLowerCase();
     if (ext === '.mp3') {
@@ -89,7 +132,7 @@ class StreamEngine {
       await this._transcodeAndPipe(track.filePath, signal);
     }
 
-    bus.emit('track-end', { id: track.id, title: track.title });
+    bus.emit('cleanup', { type: 'track-feed-complete', id: track.id });
   }
 
   _pipeFileToMain(filePath, signal) {
@@ -142,6 +185,10 @@ class StreamEngine {
       p.stdout.on('end', () => {
         this.transientProcs.delete(p);
         resolve();
+      });
+
+      p.once('close', () => {
+        this.transientProcs.delete(p);
       });
 
       if (signal) {

@@ -1,0 +1,160 @@
+Project: RadioServer — Architecture Overview
+
+Purpose
+-------
+This document describes the complete architecture of the RadioServer project and the companion music bot: components, dataflow, runtime behavior, configuration, deployment, monitoring, and resource guidance (CPU & memory). It is intended for operators, maintainers, and future contributors.
+
+High-level Components
+---------------------
+- Radio Server (Node.js): REST API, downloader, queue manager, streamer, cache, utilities.
+- Music Bot (Highrise SDK): user-facing control interface, autopilot, announcements, retries/backoff.
+- yt-dlp: external downloader used to resolve and fetch audio sources.
+- FFmpeg: per-track process that prepares audio and streams to Icecast.
+- Icecast: streaming server (source mount) that serves listeners.
+- PM2 / systemd: process manager for production daemonization.
+
+Repository Layout (key files)
+----------------------------
+- server.js: bootstrap, wiring of components, startup/shutdown.
+- config/env.js: environment mapping and runtime defaults (cache, ytdlp, ffmpeg threads, download concurrency).
+- api/createApp.js: Express routes (/play, /promote, /skip, /queue, /now-playing, /health).
+- downloader/downloader.js: search, resolve, download, cache index, in-flight dedupe, concurrency gating.
+- streamer/streamer.js: playback loop, FFmpeg spawn, cleanup, prune integration.
+- queue/queueManager.js: evented queue, now-playing state, enqueue/dequeue operations.
+- utils/*: filesystem helpers, audio validators, promo generator.
+- musicBot/index.js: bot command handlers, autopilot, API client with backoff.
+- .env.example: deployment hints and runtime knobs.
+- arch.txt: this file.
+
+Runtime Flow
+------------
+1. Incoming request: user issues a `POST /play` (bot or HTTP client).
+2. API handler normalizes requester metadata and calls `downloader.resolveAndDownload(query)`.
+3. Downloader: checks query cache, inFlight dedupe; if needed, selects candidate via `yt-dlp --dump-single-json` then invokes `yt-dlp` to download audio as MP3 into `songs/`.
+4. Once downloaded and validated (via ffmpeg probe util), a track record is stored in `songs/index.json` and the queue is updated.
+5. QueueManager emits `track-added` event; RadioStreamer ensures session running.
+6. RadioStreamer picks next track, spawns a per-track FFmpeg process with configured thread limits and either `-c:a copy` for MP3 sources or re-encode to MP3 for others, piping the output to Icecast via `icecast://source:password@host:port/mount`.
+7. On track completion, streamer deletes non-promotion track files and triggers `downloader.pruneCache()` (age/count based removal).
+8. Bot monitors `now-playing` via API, announces publicly on track start and provides private `-np` to requesters. Autopilot uses `playlist.json` when queue is empty.
+
+Concurrency & Resource Controls (what we added)
+-----------------------------------------------
+- Download concurrency: `DOWNLOAD_MAX_CONCURRENT` (default: 1 on small VPS). Implemented as a simple semaphore in `downloader` to queue extra download requests and avoid multiple simultaneous `yt-dlp` processes.
+- FFmpeg threading: `FFMPEG_THREADS` (default: 1). Passed as `-threads N` to FFmpeg to constrain per-process CPU usage.
+- Stream bitrate: `STREAM_BITRATE` can be lowered (e.g., 96k, 80k, 64k) to reduce CPU and network bandwidth.
+- YTDLP search results: `YTDLP_SEARCH_RESULTS` reduced to limit candidate resolution overhead (default: 3).
+- Cache size: `CACHE_MAX_TRACKS` reduced (default suggestions: 60 -> 40 -> 20 for aggressive mode) to limit disk/memory footprint for index structures.
+- Pruning: `downloader.pruneCache()` removes tracks by age and LRU policy to enforce `CACHE_MAX_TRACKS`.
+
+Why these controls matter (operational rationale)
+-----------------------------------------------
+- yt-dlp and FFmpeg are the main CPU and memory consumers. Multiple concurrent downloads amplify the load: each `yt-dlp` spawn, sometimes with an embedded FFmpeg or extraction, increases CPU & memory.
+- FFmpeg re-encoding (libmp3lame) is CPU-heavy; preferring `-c:a copy` for MP3 sources and limiting threads reduces CPU.
+- Lowering the stream bitrate reduces CPU used by on-the-fly encoding and reduces bandwidth to Icecast.
+- Smaller caches reduce the size of `index.json` and the number of files on disk; pruning reduces I/O and storage use.
+
+Deployment & Process Management
+-------------------------------
+- Recommended: run under `pm2` or a `systemd` unit for automatic restarts and log management.
+- Use an `ecosystem.config.js` or `pm2 start server.js --name radio --env production` with env vars set in the ecosystem file or sourced from the systemd unit.
+- Keep secrets out of git; use a server-local `.env` or `pm2` ecosystem `env` block.
+
+Suggested pm2 Ecosystem (example)
+---------------------------------
+module.exports = {
+	apps: [
+		{
+			name: 'radio',
+			script: 'server.js',
+			cwd: '/opt/RadioServer',
+			env: {
+				NODE_ENV: 'production',
+				PORT: 3000,
+				HOST: '0.0.0.0',
+				API_TOKEN: 'REPLACE_ME',
+				ICECAST_PASSWORD: 'REPLACE_ME',
+				DOWNLOAD_MAX_CONCURRENT: 1,
+				FFMPEG_THREADS: 1,
+				CACHE_MAX_TRACKS: 40,
+				STREAM_BITRATE: '80k',
+			},
+			out_file: './logs/out.log',
+			error_file: './logs/err.log',
+			max_restarts: 5,
+			autorestart: true,
+		},
+	],
+};
+
+Monitoring & Metrics
+--------------------
+- Immediate checks:
+	- `pm2 status radio`
+	- `pm2 logs radio --lines 200`
+	- `curl -sS http://127.0.0.1:3000/health` (should return ok)
+	- `curl -sS http://127.0.0.1:3000/now-playing`
+- Resource observations:
+	- Keep an eye on `top` or `htop` for processes: `yt-dlp`, `ffmpeg`, `node`.
+	- Typical behavior on small VPS: without caps, multiple `ffmpeg`/`yt-dlp` can push CPU to 100% and memory high. With current conservative defaults (single download, ffmpeg threads=1, bitrate=80k), CPU usage should fall into a steady lower range (target < 40-60% under normal load). If still high, reduce bitrate or use single download + lower cache.
+- Long-term monitoring: integrate a lightweight metrics agent (Prometheus node exporter or Netdata) for historical CPU, memory, and process counts.
+
+Bot Architecture & Behavior
+--------------------------
+- Client: Highrise-based bot connecting to chat/room(s).
+- Commands: `-play`, `-skip`, `-queue`, `-np`, `-next`, `-promote`, `-help`.
+- API Client: `musicBot` uses resilient HTTP with timeouts, retries, exponential backoff, and optional local fallback to `127.0.0.1` if the configured RADIO_API is unreachable.
+- Autopilot: On startup or when the queue is empty, the bot uses `playlist.json` to enqueue tracks. It will not rely on a server-side fallback track (server-side fallback removed) — this prevents loops and unexpected playback.
+- Messaging: bot sends private confirmations (`-np` whisper), public now-playing announcements on track start, queue change notifications, and simple progress messages (added -> now playing transitions).
+
+Security
+--------
+- API authentication: Bearer `API_TOKEN` required for commands that mutate the queue or control playback.
+- Keep `API_TOKEN`, `ICECAST_PASSWORD`, and any yt-dlp cookie files out of git and readable only by the service account.
+- If exposing the API publicly, use firewall rules to restrict admin endpoints or place API behind a reverse proxy with TLS and additional authentication.
+
+Operational Playbook (start / stop / debug)
+-----------------------------------------
+- Start with pm2 ecosystem: `pm2 start ecosystem.config.js`.
+- Quick restart: `pm2 restart radio`.
+- Tail logs: `pm2 logs radio --lines 200` and `tail -f logs/out.log`.
+- Force stop: `pm2 stop radio` or `pm2 delete radio`.
+- Debug: check `yt-dlp` failures in logs (look for HTTP 400 anti-bot messages). Provide `cookies.txt` and enable `YTDLP_REMOTE_COMPONENTS` + JS runtime on Linux nodes when needed.
+
+Resource Tuning Checklist (if CPU/Mem remains high)
+--------------------------------------------------
+1. Set `DOWNLOAD_MAX_CONCURRENT=1`.
+2. Set `FFMPEG_THREADS=1`.
+3. Lower `STREAM_BITRATE` to `64k` temporarily.
+4. Reduce `CACHE_MAX_TRACKS` to `20`.
+5. Reduce `YTDLP_SEARCH_RESULTS` to `2`.
+6. If spikes still occur during downloads, consider serializing downloads further and/or switching to a stream-first playback pipeline (play while downloading) — this is more invasive.
+
+Storage & Files
+---------------
+- `songs/` directory: stores downloaded MP3s and `index.json` cache.
+- `promotion.mp3`: local promo file (not deleted by streamer).
+- Logs: `logs/` contains runtime logs; rotate or prune logs on long-running servers.
+
+Edge Cases & Known Gotchas
+-------------------------
+- YouTube anti-bot responses: If yt-dlp returns HTTP 400 'Sign in to confirm you're not a bot', supply a `cookies.txt` from a signed-in browser and set `YTDLP_COOKIES_FILE` or `YTDLP_COOKIES_FROM_BROWSER` and enable remote components on linux.
+- Network reachability: Ensure bot host can access the radio API port (server binds to `0.0.0.0`) and firewall/host rules allow access.
+- Race conditions: concurrent download + playback + deletion can conflict — implemented simple guards and prune logic, but avoid manual deletions while the service runs.
+
+Future Improvements
+-------------------
+- Implement streaming-first downloads (play while downloading) to reduce disk IO and storage needs.
+- Add Prometheus metrics + Grafana dashboard for CPU, memory, and track-level metrics (download durations, FFmpeg durations, queue depth).
+- Add rate limiting and authentication scopes for bot vs. public API users.
+- Explore lightweight transcoding alternatives (ffmpeg hardware accel, copy more container formats) to reduce CPU.
+
+Contact & Maintainers
+---------------------
+- Primary maintainer(s): project owner (see repo history / git commits).
+- For urgent ops: restart via pm2, check logs, reduce runtime defaults, then follow the Resource Tuning Checklist above.
+
+Version & Revision
+------------------
+Document last updated: 2026-05-31
+Revision summary: added download concurrency, ffmpeg thread limits, lower cache defaults, and guidance for VPS deployment and resource tuning.
+

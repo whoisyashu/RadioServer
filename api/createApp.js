@@ -95,6 +95,15 @@ function createApp({ env, logger, downloader, queueManager, streamer }) {
         return res.status(400).json({ ok: false, error: 'Provide a query or url' });
       }
 
+      if (!queueManager.canAcceptMore()) {
+        return res.status(429).json({
+          ok: false,
+          success: false,
+          message: 'Radio server busy, try again shortly.',
+          error: 'Queue is full',
+        });
+      }
+
       const track = await downloader.resolveAndDownload(input);
       const requester = extractRequester(body);
       const queued = queueManager.enqueue({
@@ -112,6 +121,14 @@ function createApp({ env, logger, downloader, queueManager, streamer }) {
         radio: streamer.status(),
       });
     } catch (error) {
+      if (error && (error.code === 'QUEUE_FULL' || error.code === 'RESOURCE_BUSY')) {
+        return res.status(429).json({
+          ok: false,
+          success: false,
+          message: 'Radio server busy, try again shortly.',
+          error: error.message,
+        });
+      }
       return next(error);
     }
   });
@@ -145,6 +162,14 @@ function createApp({ env, logger, downloader, queueManager, streamer }) {
         radio: streamer.status(),
       });
     } catch (error) {
+      if (error && (error.code === 'QUEUE_FULL' || error.code === 'RESOURCE_BUSY')) {
+        return res.status(429).json({
+          ok: false,
+          success: false,
+          message: 'Radio server busy, try again shortly.',
+          error: error.message,
+        });
+      }
       return next(error);
     }
   });

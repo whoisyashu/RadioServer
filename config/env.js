@@ -82,18 +82,27 @@ const env = {
     extraArgs: process.env.YTDLP_EXTRA_ARGS || '',
     jsRuntime: process.env.YTDLP_JS_RUNTIME || process.env.YTDLP_JS_RUNTIMES || '',
     remoteComponents: String(process.env.YTDLP_REMOTE_COMPONENTS || '').trim() || (process.platform === 'linux' ? 'ejs:github' : ''),
-    searchResults: toNumber(process.env.YTDLP_SEARCH_RESULTS, 3),
-    maxDurationSeconds: toNumber(process.env.YTDLP_MAX_DURATION_SECONDS, 900),
+    searchResults: toNumber(process.env.YTDLP_SEARCH_RESULTS, 1),
+    maxDurationSeconds: toNumber(process.env.MAX_TRACK_DURATION || process.env.YTDLP_MAX_DURATION_SECONDS, 480),
   },
   cache: {
-    maxTracks: toNumber(process.env.CACHE_MAX_TRACKS, 60),
+    maxTracks: toNumber(process.env.CACHE_MAX_TRACKS, 20),
+    maxAgeHours: toNumber(process.env.CACHE_MAX_AGE_HOURS, 12),
     maxAgeDays: toNumber(process.env.CACHE_MAX_AGE_DAYS, 30),
   },
   download: {
     // Limit concurrent yt-dlp downloads to avoid CPU/memory spikes
     maxConcurrentDownloads: toNumber(process.env.DOWNLOAD_MAX_CONCURRENT, 1),
+    maxDownloadTimeSeconds: toNumber(process.env.MAX_DOWNLOAD_TIME || process.env.DOWNLOAD_MAX_TIME, 120),
   },
   ffmpegThreads: toNumber(process.env.FFMPEG_THREADS, 1),
+  queue: {
+    maxQueueSize: toNumber(process.env.MAX_QUEUE_SIZE, 20),
+  },
+  resource: {
+    cpuLimitPercent: toNumber(process.env.RESOURCE_CPU_LIMIT_PERCENT, 85),
+    memoryLimitPercent: toNumber(process.env.RESOURCE_MEMORY_LIMIT_PERCENT, 85),
+  },
 };
 
 module.exports = { env };
