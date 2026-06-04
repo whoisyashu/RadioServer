@@ -1,31 +1,15 @@
 const { EventEmitter } = require('events');
-const { bus } = require('../events/events');
 
 class QueueManager extends EventEmitter {
-  constructor({ logger, maxQueueSize = 20 }) {
+  constructor({ logger }) {
     super();
     this.logger = logger;
-    this.maxQueueSize = maxQueueSize;
     this.queue = [];
     this.nowPlaying = null;
     this.lastFinished = null;
   }
 
-  canAcceptMore() {
-    return this.queue.length < this.maxQueueSize;
-  }
-
-  _assertCapacity(track) {
-    const isPromotion = track?.isPromotion || String(track?.id || '').toLowerCase() === 'promotion';
-    if (!isPromotion && !this.canAcceptMore()) {
-      const error = new Error('Queue is full');
-      error.code = 'QUEUE_FULL';
-      throw error;
-    }
-  }
-
   enqueue(track) {
-    this._assertCapacity(track);
     const queuedTrack = {
       ...track,
       queuedAt: new Date().toISOString(),
@@ -35,14 +19,12 @@ class QueueManager extends EventEmitter {
     this.queue.push(queuedTrack);
     this.emit('track-added', queuedTrack);
     this.emit('queue-changed');
-    bus.emit('queue-update', { size: this.size(), action: 'enqueue', trackId: queuedTrack.id });
     this.logger.info('Queued track', { id: queuedTrack.id, title: queuedTrack.title });
 
     return queuedTrack;
   }
 
   enqueueFront(track) {
-    this._assertCapacity(track);
     const queuedTrack = {
       ...track,
       queuedAt: new Date().toISOString(),
@@ -53,7 +35,6 @@ class QueueManager extends EventEmitter {
     this.queue.unshift(queuedTrack);
     this.emit('track-added', queuedTrack);
     this.emit('queue-changed');
-    bus.emit('queue-update', { size: this.size(), action: 'enqueueFront', trackId: queuedTrack.id });
     this.logger.info('Queued priority track', { id: queuedTrack.id, title: queuedTrack.title });
 
     return queuedTrack;
@@ -64,7 +45,6 @@ class QueueManager extends EventEmitter {
 
     if (next) {
       this.emit('queue-changed');
-      bus.emit('queue-update', { size: this.size(), action: 'dequeue', trackId: next.id });
     }
 
     return next;
@@ -91,7 +71,6 @@ class QueueManager extends EventEmitter {
 
     if (removed.length > 0) {
       this.emit('queue-changed');
-      bus.emit('queue-update', { size: this.size(), action: 'discard', count: removed.length });
     }
 
     return removed;
@@ -104,7 +83,6 @@ class QueueManager extends EventEmitter {
       status: track.isFallback || track.isSilence ? 'idle' : 'playing',
     };
     this.emit('now-playing', this.nowPlaying);
-    bus.emit('track-start', { id: track.id, title: track.title });
     return this.nowPlaying;
   }
 
@@ -120,7 +98,6 @@ class QueueManager extends EventEmitter {
     };
     this.nowPlaying = null;
     this.emit('now-playing', this.nowPlaying);
-    bus.emit('track-end', { id: this.lastFinished.id, title: this.lastFinished.title, status });
     return this.lastFinished;
   }
 

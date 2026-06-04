@@ -8,8 +8,6 @@ const { Downloader } = require('./downloader/downloader');
 const { QueueManager } = require('./queue/queueManager');
 const { RadioStreamer } = require('./streamer/streamer');
 const { createApp } = require('./api/createApp');
-const { bus } = require('./events/events');
-const { getSystemPressure } = require('./utils/resources');
 
 async function main() {
   ensureDirectory(env.songsDir);
@@ -36,42 +34,12 @@ async function main() {
   const downloader = new Downloader({ env, logger });
   await downloader.loadCache();
 
-  const queueManager = new QueueManager({ logger, maxQueueSize: env.queue.maxQueueSize });
+  const queueManager = new QueueManager({ logger });
   const streamer = new RadioStreamer({
     env,
     logger,
     queueManager,
     downloader,
-  });
-
-  const cleanupTimer = setInterval(() => {
-    void downloader.pruneCache({
-      keepIds: [queueManager.getNowPlaying()?.id, queueManager.peekNext()?.id].filter(Boolean),
-      activeFilePaths: [queueManager.getNowPlaying()?.filePath, queueManager.peekNext()?.filePath].filter(Boolean),
-    }).catch((error) => {
-      logger.warn('Periodic cache cleanup failed', error && error.message ? error.message : error);
-    });
-  }, 30 * 60 * 1000);
-  cleanupTimer.unref();
-
-  const metricsTimer = setInterval(() => {
-    const pressure = getSystemPressure();
-    logger.debug('Resource snapshot', {
-      cpuLoadPercent: Number(pressure.cpuLoadPercent.toFixed(1)),
-      memoryPercent: Number(pressure.memoryPercent.toFixed(1)),
-      processMemoryRssMb: pressure.processMemoryRssMb,
-      queueLength: queueManager.size(),
-      streamerState: streamer.status().state,
-    });
-  }, 60 * 1000);
-  metricsTimer.unref();
-
-  bus.on('error', (payload) => {
-    logger.warn('Internal bus error event', payload);
-  });
-
-  bus.on('cleanup', (payload) => {
-    logger.debug('Cleanup event', payload);
   });
 
   queueManager.on('queue-changed', () => {
@@ -92,16 +60,9 @@ async function main() {
 
   const shutdown = async (signal) => {
     logger.info('Shutting down', { signal });
-    clearInterval(cleanupTimer);
-    clearInterval(metricsTimer);
     await streamer.stop();
     await downloader.saveCache();
-    await new Promise((resolve) => {
-      server.close(() => {
-        logger.info('HTTP server closed');
-        resolve();
-      });
-    });
+    server.close(() => logger.info('HTTP server closed'));
     // best-effort: kill lingering ffmpeg/yt-dlp on Linux to avoid orphans
     try {
       if (process.platform === 'linux') {

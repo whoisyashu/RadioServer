@@ -1,6 +1,5 @@
 const { pathExists } = require('../utils/fs');
 const { StreamEngine } = require('./streamEngine');
-const { bus } = require('../events/events');
 
 function delay(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -67,7 +66,6 @@ class RadioStreamer {
 
   requestSkip() {
     this.state = 'switching';
-    bus.emit('skip', { state: this.state });
     if (this.currentAbortController) {
       this.currentAbortController.abort();
     }
@@ -227,7 +225,6 @@ class RadioStreamer {
     this.logger.info('Deleting played track file', { id: track.id, filePath: track.filePath });
     this.downloader.deleteCachedTrack(track.id, track.filePath);
     await this.downloader.saveCache();
-    bus.emit('cleanup', { type: 'track-file-delete', id: track.id, filePath: track.filePath });
   }
 }
 

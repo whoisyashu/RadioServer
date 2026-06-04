@@ -6,7 +6,6 @@ const { parseArgString } = require('../utils/args');
 const { validateAudioFile } = require('../utils/audio');
 const { ensureDirectory, pathExists, readJson, removeFile, writeJson } = require('../utils/fs');
 const { bus } = require('../events/events');
-const { isSystemOverloaded } = require('../utils/resources');
 
 const execFileAsync = promisify(execFile);
 
@@ -24,34 +23,9 @@ class Downloader {
     this.cache = { tracksById: {} };
     this.cacheByQuery = new Map();
     this.inFlight = new Map();
-    this.maxConcurrentDownloads = (env.download && Number(env.download.maxConcurrentDownloads)) || 1;
+    this.maxConcurrentDownloads = (env.download && Number(env.download.maxConcurrentDownloads)) || 2;
     this.activeDownloads = 0;
     this.downloadQueue = [];
-  }
-
-  _downloadTimeoutMs() {
-    return Math.max(5000, Number(this.env.download?.maxDownloadTimeSeconds || 120) * 1000);
-  }
-
-  _resourceLimits() {
-    return {
-      cpuLimitPercent: Number(this.env.resource?.cpuLimitPercent || 85),
-      memoryLimitPercent: Number(this.env.resource?.memoryLimitPercent || 85),
-    };
-  }
-
-  _busyError() {
-    const error = new Error('Radio server busy, try again shortly.');
-    error.code = 'RESOURCE_BUSY';
-    return error;
-  }
-
-  _assertSystemCapacity() {
-    const { overloaded, pressure } = isSystemOverloaded(this._resourceLimits());
-    if (overloaded) {
-      this.logger.warn('Rejecting download because system is overloaded', pressure);
-      throw this._busyError();
-    }
   }
 
   async _acquireDownloadSlot() {
@@ -110,8 +84,6 @@ class Downloader {
       throw new Error('A search query or URL is required');
     }
 
-    this._assertSystemCapacity();
-
     const normalizedQuery = this.normalizeQuery(normalizedInput);
     if (normalizedQuery && this.cacheByQuery.has(normalizedQuery)) {
       const cachedByQuery = this.cacheByQuery.get(normalizedQuery);
@@ -153,7 +125,6 @@ class Downloader {
     const downloadPromise = (async () => {
       await this._acquireDownloadSlot();
       try {
-        this._assertSystemCapacity();
         return await this.downloadTrack(candidate, normalizedInput);
       } finally {
         this._releaseDownloadSlot();
@@ -230,7 +201,7 @@ class Downloader {
     args.push(target);
 
     this.logger.info('Searching YouTube candidates', { target, candidateCount: this.env.ytdlp.searchResults });
-    const { stdout } = await execFileAsync(this.env.ytdlp.bin, args, { maxBuffer: 10 * 1024 * 1024, timeout: this._downloadTimeoutMs() });
+    const { stdout } = await execFileAsync(this.env.ytdlp.bin, args, { maxBuffer: 10 * 1024 * 1024 });
     const payload = JSON.parse(stdout);
 
     if (Array.isArray(payload.entries)) {
@@ -303,14 +274,8 @@ class Downloader {
     addArgPair(args, '--fragment-retries', 2);
     addArgPair(args, '--concurrent-fragments', 1);
 
-    try {
-      await execFileAsync(this.env.ytdlp.bin, args, { maxBuffer: 10 * 1024 * 1024, timeout: this._downloadTimeoutMs() });
-      bus.emit('download-finished', { id: candidate.id, title: candidate.title, filePath });
-    } catch (error) {
-      this.cleanupDownloadArtifacts(filePath);
-      bus.emit('error', { type: 'download', id: candidate.id, error: error.message || String(error) });
-      throw error;
-    }
+    await execFileAsync(this.env.ytdlp.bin, args, { maxBuffer: 10 * 1024 * 1024 });
+    bus.emit('download-finished', { id: candidate.id, title: candidate.title, filePath });
 
     if (!pathExists(filePath)) {
       throw new Error(`Expected cached MP3 file not found after download: ${filePath}`);
@@ -406,7 +371,6 @@ class Downloader {
       ...track,
       lastUsedAt: new Date().toISOString(),
       playCount: Number(track.playCount || 0) + 1,
-      cacheTier: Number(track.playCount || 0) >= 1 ? 'hot' : 'temp',
     };
 
     this.cache.tracksById[updated.id] = updated;
@@ -442,32 +406,16 @@ class Downloader {
     }
   }
 
-  cleanupDownloadArtifacts(filePath) {
-    if (!filePath) {
-      return;
-    }
-
-    removeFile(filePath);
-    removeFile(`${filePath}.part`);
-    removeFile(`${filePath}.ytdl`);
-    bus.emit('cleanup', { type: 'download-artifacts', filePath });
-  }
-
   async pruneCache({ keepIds = [], activeFilePaths = [] } = {}) {
     const entries = Object.values(this.cache.tracksById);
     const keepSet = new Set(keepIds);
     const activeSet = new Set(activeFilePaths);
     const now = Date.now();
-    const maxAgeMs = Math.max(1, Number(this.env.cache.maxAgeHours || 12)) * 60 * 60 * 1000;
+    const maxAgeMs = this.env.cache.maxAgeDays * 24 * 60 * 60 * 1000;
 
     const candidates = entries
       .filter((track) => !keepSet.has(track.id) && !activeSet.has(track.filePath))
       .sort((left, right) => {
-        const leftTier = left.cacheTier === 'hot' || Number(left.playCount || 0) > 1 ? 1 : 0;
-        const rightTier = right.cacheTier === 'hot' || Number(right.playCount || 0) > 1 ? 1 : 0;
-        if (leftTier !== rightTier) {
-          return leftTier - rightTier;
-        }
         const leftTouched = new Date(left.lastUsedAt || left.downloadedAt || 0).getTime();
         const rightTouched = new Date(right.lastUsedAt || right.downloadedAt || 0).getTime();
         return leftTouched - rightTouched;
@@ -486,7 +434,6 @@ class Downloader {
       this.logger.info('Pruning cached track', { id: track.id, filePath: track.filePath });
       delete this.cache.tracksById[track.id];
       removeFile(track.filePath);
-      bus.emit('cleanup', { type: 'cache-prune', id: track.id, filePath: track.filePath });
     }
 
     if (removable.size > 0) {
